@@ -24,7 +24,14 @@ BASE = "https://api.ted.europa.eu/v3/notices/search"
 # --- Scope: adjust these to change what the pipeline pulls -----------------
 # Buyer countries (ISO 3166-1 alpha-3, TED's convention) — i.e. tenders run
 # BY these countries' contracting authorities, regardless of who wins.
-BUYER_COUNTRIES = ["DNK", "SWE", "NOR", "FIN", "DEU"]
+# All 27 EU member states plus Norway (EEA, publishes above-threshold
+# notices to TED same as EU members).
+BUYER_COUNTRIES = [
+    "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA",
+    "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD",
+    "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE",
+    "NOR",
+]
 # CPV division prefixes: 79=business/consulting/research services,
 # 73=R&D services, 85=health & social work, 90=environmental services.
 CPV_PREFIXES = ["79", "73", "85", "90"]
@@ -38,7 +45,6 @@ DATE_FROM = "20240101"
 
 FIELDS = [
     "publication-number",
-    "notice-title",
     "buyer-name",
     "buyer-country",
     "classification-cpv",
@@ -214,7 +220,6 @@ def flatten_notice(notice, rate_table):
     buyer_country = as_list(notice.get("buyer-country"))
     buyer_country = buyer_country[0] if buyer_country else None
     cpv_codes = sorted(set(as_list(notice.get("classification-cpv"))))
-    notice_title = first_text(notice.get("notice-title"))
     html_link = None
     links = notice.get("links") or {}
     html_links = links.get("html") or {}
@@ -230,7 +235,6 @@ def flatten_notice(notice, rate_table):
         records.append(
             {
                 "publication_number": notice.get("publication-number"),
-                "notice_title": notice_title,
                 "buyer_name": buyer_name,
                 "buyer_country": buyer_country,
                 "cpv_codes": cpv_codes,

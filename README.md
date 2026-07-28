@@ -62,7 +62,8 @@ Edit the constants at the top of `scripts/ted_fetch.py`:
 
 - `BUYER_COUNTRIES` — ISO 3166-1 alpha-3 codes for the contracting
   authorities' countries (i.e. where the tender was run, not where the
-  winner is based). Currently `DNK, SWE, NOR, FIN, DEU`.
+  winner is based). Currently all 27 EU member states plus Norway (EEA,
+  publishes above-threshold notices to TED same as EU members).
 - `CPV_PREFIXES` — CPV division prefixes to include. Currently `79`
   (business/consulting/research services), `73` (R&D services), `85`
   (health & social work), `90` (environmental services).
@@ -114,10 +115,12 @@ that ceiling, narrow scope rather than raising it further.
   `framework-estimated-value`, `framework-value-notice`) was empty for that
   notice. So TED's own system doesn't consistently separate "ceiling" from
   "amount actually spent" for frameworks, at least not in a way this API
-  exposes. The dashboard flags any value ≥ €250,000,000
-  (`LARGE_VALUE_THRESHOLD_EUR` in `dashboard/index.html`) with a "⚠ verify"
-  badge rather than silently trusting it — check the linked notice before
-  relying on a flagged number.
+  exposes — an unusually large number for one notice is worth checking the
+  linked notice for before relying on it, particularly for framework
+  agreements. (An earlier version of the dashboard auto-flagged large
+  values with a badge; removed because at the top of any "biggest
+  contracts" view, nearly everything is large by construction, so the
+  badge fired almost everywhere and stopped being a useful signal.)
 - **Multi-winner notices**: the TED Search API's flat `fields` response
   doesn't expose which winner corresponds to which lot when a notice has
   several. When a notice has multiple distinct winners, this pipeline
