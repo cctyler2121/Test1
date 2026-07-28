@@ -52,7 +52,7 @@ FIELDS = [
 ]
 
 PAGE_LIMIT = 250
-MAX_PAGES = 200  # safety valve: up to 50,000 notices per run
+MAX_PAGES = 8000  # safety valve against a runaway/looping bug, not a real cap: 2M notices
 REQUEST_DELAY_SECONDS = 0.5  # the API starts returning 429 after ~24 rapid requests
 
 
@@ -263,16 +263,31 @@ def main():
         records.extend(flatten_notice(notice, rate_table))
     print(f"Flattened to {len(records)} winner-level award records", flush=True)
 
-    with open(os.path.join(out_dir, "contract_awards.json"), "w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
+    # Compact (no indent): pretty-printing roughly doubles size at this
+    # volume, and companies.json is what actually needs to stay under
+    # GitHub's 100MB per-file push limit. contract_awards.json is the raw
+    # flat dump — not read by the dashboard, kept as a build artifact
+    # rather than committed to git (see workflow) to avoid repo bloat.
+    awards_path = os.path.join(out_dir, "contract_awards.json")
+    with open(awards_path, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, separators=(",", ":"))
 
     alias_path = os.path.join(out_dir, "company_aliases.json")
     groups = resolve_companies(records, alias_path=alias_path)
     companies = summarize(groups)
-    with open(os.path.join(out_dir, "companies.json"), "w", encoding="utf-8") as f:
-        json.dump(companies, f, ensure_ascii=False, indent=2)
+    companies_path = os.path.join(out_dir, "companies.json")
+    with open(companies_path, "w", encoding="utf-8") as f:
+        json.dump(companies, f, ensure_ascii=False, separators=(",", ":"))
 
+    companies_mb = os.path.getsize(companies_path) / (1024 * 1024)
     print(f"Resolved {len(records)} records into {len(companies)} canonical companies", flush=True)
+    print(f"companies.json is {companies_mb:.1f} MB", flush=True)
+    if companies_mb > 90:
+        raise RuntimeError(
+            f"companies.json is {companies_mb:.1f} MB, too close to GitHub's 100MB "
+            "per-file push limit. Narrow the scope (fewer countries/CPV codes, "
+            "shorter date range) or restructure storage before committing."
+        )
 
     metadata = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

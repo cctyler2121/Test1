@@ -27,7 +27,7 @@ scripts/ted_fetch.py        → queries the TED Search API, paginates through
                                all matching notices, converts each award's
                                value to EUR at the ECB reference rate for
                                its notice date, writes:
-                                 data/contract_awards.json (flat records)
+                                 data/contract_awards.json (flat records — not committed, see below)
                                  data/metadata.json (run info)
 scripts/entity_resolution.py → groups records by normalized winner name
                                (strips legal-form suffixes: GmbH, S.A.,
@@ -37,15 +37,24 @@ scripts/entity_resolution.py → groups records by normalized winner name
                                  data/companies.json (rolled-up per-company view)
 scripts/ecb_rates.py         → downloads ECB historical daily FX rates for
                                currency conversion
-dashboard/index.html         → static page reading data/*.json: search by
-                               company name, see rolled-up totals, expand
-                               to see legal-entity variants and underlying
-                               contracts
+dashboard/index.html         → static page reading data/companies.json and
+                               data/metadata.json: search by company name,
+                               see rolled-up totals, expand to see
+                               legal-entity variants and underlying contracts
 ```
 
 `.github/workflows/ted-fetch.yml` runs `ted_fetch.py` on a schedule and
-commits the refreshed `data/*.json` files — that's what keeps the
-dashboard "live" without any session needing direct network access to TED.
+commits the refreshed `data/companies.json` and `data/metadata.json` —
+that's what keeps the dashboard "live" without any session needing direct
+network access to TED. `data/contract_awards.json` (the raw flat dump,
+unused by the dashboard) is uploaded as a 30-day GitHub Actions build
+artifact instead of committed, to keep the git repo from growing by tens
+of megabytes every single day forever.
+
+**The daily schedule only takes effect once this workflow is on `main`** —
+GitHub only fires `schedule:` triggers from the repository's default
+branch. Until this is merged, use the workflow's manual "Run workflow"
+button to refresh data on a feature branch.
 
 ## Adjusting scope
 
@@ -61,10 +70,15 @@ Edit the constants at the top of `scripts/ted_fetch.py`:
   "Known limitations" for why it isn't set earlier).
 
 Widening scope significantly (e.g. all EU countries, all CPV codes) will
-increase the number of notices well into the millions — `MAX_PAGES` in
-`ted_fetch.py` is a safety valve (currently 200 pages × 250 notices =
-50,000) to keep a single Action run bounded; raise it deliberately, and
-expect a much longer run and a much bigger committed dataset.
+increase the number of notices well into the millions. `MAX_PAGES` in
+`ted_fetch.py` is now a circuit breaker against a runaway/looping bug
+(8,000 pages × 250 notices = 2,000,000), not a real cap on this scope —
+raising it further only matters if you widen scope enough to actually hit
+it. The real limit to watch is **`companies.json` staying under GitHub's
+100MB per-file push limit**: `ted_fetch.py` writes compact (non-indented)
+JSON and refuses to write a `companies.json` over 90MB (raises instead of
+producing a file the workflow's `git push` would just reject). If you hit
+that ceiling, narrow scope rather than raising it further.
 
 ## Known limitations
 
