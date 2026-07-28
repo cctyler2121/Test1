@@ -1,3 +1,7 @@
+# Raw flat TED fetch dump: not read by the dashboard, uploaded as a
+# GitHub Actions build artifact instead of committed (avoids repo bloat).
+data/contract_awards.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
