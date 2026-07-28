@@ -208,6 +208,29 @@
     margin: 8px 6px 0 0;
   }
 
+  .flag-large {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #92400e;
+    background: #fef3c7;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    cursor: help;
+    white-space: nowrap;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .flag-large {
+      color: #fde68a;
+      background: #4a3510;
+    }
+  }
+  :root[data-theme="dark"] .flag-large {
+    color: #fde68a;
+    background: #4a3510;
+  }
+
   table.contracts {
     width: 100%;
     border-collapse: collapse;
@@ -275,6 +298,28 @@ const intFmt = new Intl.NumberFormat('en-GB');
 function fmtEur(n) {
   if (n === null || n === undefined) return '—';
   return eurFmt.format(n);
+}
+
+// TED sometimes reports a framework agreement's overall ceiling value in
+// the same field this pipeline treats as "awarded value" (confirmed by
+// checking a real notice: TED's own "result value" field matched the
+// framework total exactly, with no separate call-off amount exposed
+// anywhere in the API). There's no reliable way to tell that case apart
+// from a genuine single large award, so values above this threshold get
+// flagged for manual verification rather than silently trusted.
+const LARGE_VALUE_THRESHOLD_EUR = 250_000_000;
+const LARGE_VALUE_TITLE =
+  'Unusually large value — verify before relying on it. May be a framework ' +
+  "agreement's overall ceiling rather than an actual award/spend amount, " +
+  'or a data-entry anomaly in the source TED notice. Click through to the ' +
+  'notice to check.';
+
+function isLargeValue(eur) {
+  return typeof eur === 'number' && eur >= LARGE_VALUE_THRESHOLD_EUR;
+}
+
+function largeValueBadge() {
+  return `<span class="flag-large" title="${escapeHtml(LARGE_VALUE_TITLE)}">⚠ verify</span>`;
 }
 
 function escapeHtml(s) {
@@ -361,7 +406,7 @@ function renderTopChart() {
       <div class="bar-track">
         <div class="bar-fill" style="width:${max ? (c.total_value_eur / max * 100) : 0}%"></div>
       </div>
-      <div class="bar-value">${fmtEur(c.total_value_eur)}</div>
+      <div class="bar-value">${fmtEur(c.total_value_eur)}${c.records.some(r => isLargeValue(r.total_value_eur)) ? largeValueBadge() : ''}</div>
     </div>
   `).join('');
 }
@@ -383,7 +428,7 @@ function renderResults(list) {
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <div class="company-total">${fmtEur(c.total_value_eur)}</div>
+          <div class="company-total">${fmtEur(c.total_value_eur)}${c.records.some(r => isLargeValue(r.total_value_eur)) ? largeValueBadge() : ''}</div>
           <div class="chevron">▶</div>
         </div>
       </div>
@@ -403,13 +448,14 @@ function renderResults(list) {
                 <td>${escapeHtml(r.buyer_country)}</td>
                 <td>${escapeHtml((r.cpv_codes || []).join(', '))}</td>
                 <td class="num">${escapeHtml(r.publication_date)}</td>
-                <td class="num">${fmtEur(r.total_value_eur)}${r.multi_winner_notice ? ' *' : ''}</td>
+                <td class="num">${fmtEur(r.total_value_eur)}${r.multi_winner_notice ? ' *' : ''}${isLargeValue(r.total_value_eur) ? largeValueBadge() : ''}</td>
                 <td>${r.notice_url ? `<a href="${escapeHtml(r.notice_url)}" target="_blank" rel="noopener">${escapeHtml(r.publication_number)}</a>` : escapeHtml(r.publication_number)}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
         ${c.records.some(r => r.multi_winner_notice) ? '<p class="company-meta">* Notice had multiple winners; value shown is the notice total split evenly across winners (an approximation — see README).</p>' : ''}
+        ${c.records.some(r => isLargeValue(r.total_value_eur)) ? `<p class="company-meta">⚠ verify — one or more values above ${fmtEur(LARGE_VALUE_THRESHOLD_EUR)} may be a framework agreement's overall ceiling rather than an actual award amount (see README).</p>` : ''}
       </div>
     </div>
   `).join('');

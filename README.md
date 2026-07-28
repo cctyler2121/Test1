@@ -104,6 +104,20 @@ that ceiling, narrow scope rather than raising it further.
   errors). So this pipeline fetches broadly within the CPV/country/date
   scope and filters for a populated `winner-name` client-side, after the
   fetch, discarding notices with no winner.
+- **A notice's `total-value` can be a framework ceiling, not an actual
+  award/spend amount, with no way to tell the two apart via this API.**
+  Confirmed on a real notice (Banedanmark/Rambøll, publication 589103-2024,
+  a "Rammeaftale" framework re-tender): `total-value` was 45B DKK
+  (~EUR 6.03bn), and TED's own `result-value-notice` field — which should
+  represent the actual outcome value — agreed with it exactly, while every
+  dedicated framework-ceiling field (`framework-maximum-value-*`,
+  `framework-estimated-value`, `framework-value-notice`) was empty for that
+  notice. So TED's own system doesn't consistently separate "ceiling" from
+  "amount actually spent" for frameworks, at least not in a way this API
+  exposes. The dashboard flags any value ≥ €250,000,000
+  (`LARGE_VALUE_THRESHOLD_EUR` in `dashboard/index.html`) with a "⚠ verify"
+  badge rather than silently trusting it — check the linked notice before
+  relying on a flagged number.
 - **Multi-winner notices**: the TED Search API's flat `fields` response
   doesn't expose which winner corresponds to which lot when a notice has
   several. When a notice has multiple distinct winners, this pipeline
