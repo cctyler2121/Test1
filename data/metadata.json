@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-07-28T21:03:45.358522+00:00",
+  "buyer_countries": [
+    "DNK",
+    "SWE",
+    "NOR",
+    "FIN",
+    "DEU"
+  ],
+  "cpv_prefixes": [
+    "79",
+    "73",
+    "85",
+    "90"
+  ],
+  "date_from": "20240101",
+  "notice_count": 80725,
+  "record_count": 48565,
+  "company_count": 21549
+}
