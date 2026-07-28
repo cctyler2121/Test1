@@ -1,0 +1,33 @@
+name: Fetch TED contract award data
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Daily at 03:17 UTC. Scheduled runs only fire on the repository's
+    # default branch (a GitHub restriction) — see README.md.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch TED contract award notices
+        run: python3 scripts/ted_fetch.py
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/contract_awards.json data/companies.json
+          if git diff --cached --quiet; then
+            echo "No data changes to commit"
+            exit 0
+          fi
+          git commit -m "Refresh TED contract award data ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+          git push
