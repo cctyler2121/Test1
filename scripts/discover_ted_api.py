@@ -1,15 +1,32 @@
 #!/usr/bin/env python3
-"""Second-pass probe of the live TED Search API v3: get the full valid-field
-catalog, a complete sample award record's JSON shape, and confirm how to
-filter to notices that actually have a winner. Run from an environment with
-real internet access (e.g. a GitHub Actions runner) — output goes to the job
-log, not to any repo file.
+"""Third-pass diagnostic: the real production fetch (ted_fetch.py) pulled
+50,000 real notices matching our scope query but extracted zero winner-name
+values from any of them. This checks whether that's specific to older
+(pre-eForms, likely pre-mid-2023) notices — TED's Search API abstracts over
+two different underlying notice schemas, and older notices may not populate
+`winner-name` the same way through this field API — or something wrong with
+the `total-value>0` filter itself.
 """
 import json
 import urllib.error
 import urllib.request
 
 BASE = "https://api.ted.europa.eu/v3/notices/search"
+
+FIELDS = [
+    "publication-number",
+    "notice-title",
+    "buyer-name",
+    "buyer-country",
+    "classification-cpv",
+    "winner-name",
+    "winner-country",
+    "winner-decision-date",
+    "total-value",
+    "total-value-cur",
+    "publication-date",
+    "links",
+]
 
 
 def post(payload):
@@ -28,112 +45,48 @@ def post(payload):
         return None, repr(e)
 
 
-def main():
-    print("=== Step 1: full valid-field catalog (via deliberate bad field) ===", flush=True)
+def run(label, query, limit=3):
+    print(f"\n=== {label} ===", flush=True)
+    print(f"query: {query}", flush=True)
     status, body = post(
-        {
-            "query": "publication-date>=20240101",
-            "fields": ["publication-number", "___not_a_real_field___"],
-            "limit": 1,
-            "scope": "ALL",
-            "checkQuerySyntax": False,
-        }
+        {"query": query, "fields": FIELDS, "limit": limit, "scope": "ALL", "checkQuerySyntax": False}
     )
     print(status)
     try:
         data = json.loads(body)
-        supported = data.get("error", {}).get("supportedFieldNames") or data.get("supportedFieldNames")
-        if supported is None:
-            msg = data.get("message", "")
-            marker = "supported values are: "
-            idx = msg.find(marker)
-            supported = msg[idx + len(marker):] if idx != -1 else None
-        if isinstance(supported, str):
-            supported = [s.strip() for s in supported.split(",")]
-        if supported:
-            winnerish = sorted(f for f in supported if "winner" in f.lower())
-            valueish = sorted(f for f in supported if "value" in f.lower())
-            print(f"TOTAL FIELDS: {len(supported)}")
-            print("WINNER-RELATED FIELDS:", winnerish)
-            print("VALUE-RELATED FIELDS:", valueish)
-        else:
-            print("Could not extract field list, raw body:")
-            print(body)
+        notices = data.get("notices", [])
+        print(f"got {len(notices)} notices")
+        for n in notices:
+            keys_present = sorted(n.keys())
+            print(f"  publication-number={n.get('publication-number')} keys_present={keys_present}")
+            print(f"    winner-name={n.get('winner-name')!r}")
+            print(f"    total-value={n.get('total-value')!r} total-value-cur={n.get('total-value-cur')!r}")
     except Exception as e:
-        print("Parse failed:", e)
-        print(body[:3000])
-
-    print("\n=== Step 2: full sample award record ===", flush=True)
-    fields = [
-        "publication-number",
-        "notice-title",
-        "buyer-name",
-        "buyer-country",
-        "classification-cpv",
-        "winner-name",
-        "winner-country",
-        "winner-decision-date",
-        "total-value",
-        "total-value-cur",
-        "publication-date",
-    ]
-    for q in [
-        "classification-cpv=79* AND publication-date>=20240101 AND winner-country=DNK",
-        "classification-cpv=79* AND publication-date>=20240101 AND buyer-country=DEU",
-        "publication-date>=20240101",
-    ]:
-        status, body = post(
-            {"query": q, "fields": fields, "limit": 2, "scope": "ALL", "checkQuerySyntax": False}
-        )
-        print(f"query={q!r} -> {status}")
-        print(body[:4000])
-        print("---")
-
-    print("\n=== Step 3: filtering to notices that actually have a winner ===", flush=True)
-    for qf in [
-        "winner-name IS NOT NULL",
-        "winner-name <> null",
-        "EXISTS(winner-name)",
-        "total-value>0",
-    ]:
-        status, body = post(
-            {
-                "query": f"publication-date>=20240101 AND {qf}",
-                "fields": ["publication-number"],
-                "limit": 1,
-                "scope": "ALL",
-                "checkQuerySyntax": True,
-            }
-        )
-        ok = status == 200
-        print(f"{qf!r} -> {status} {'OK' if ok else body[:400]}")
-
-    print("\n=== Step 4: pagination token check ===", flush=True)
-    status, body = post(
-        {
-            "query": "classification-cpv=79* AND publication-date>=20240101",
-            "fields": ["publication-number"],
-            "limit": 2,
-            "scope": "ALL",
-            "checkQuerySyntax": False,
-            "paginationMode": "ITERATION",
-        }
-    )
-    print(status)
-    print(body[:1500])
-
-    print("\n=== Step 5: rough volume estimate for a candidate scoped query ===", flush=True)
-    scoped_query = (
-        "publication-date>=20180101 AND "
-        "classification-cpv IN (79*, 73*, 85*, 90*) AND "
-        "buyer-country IN (DNK, SWE, NOR, FIN, DEU)"
-    )
-    status, body = post(
-        {"query": scoped_query, "fields": ["publication-number"], "limit": 1, "scope": "ALL", "checkQuerySyntax": False}
-    )
-    print(status)
-    print(body[:1500])
+        print("parse failed:", e, body[:2000])
 
 
-if __name__ == "__main__":
-    main()
+PROD_SCOPE = (
+    "(classification-cpv=79* OR classification-cpv=73* OR classification-cpv=85* OR classification-cpv=90*) "
+    "AND buyer-country IN (DNK, SWE, NOR, FIN, DEU)"
+)
+
+run(
+    "A: exact production query, oldest end (2018)",
+    f"publication-date>=20180101 AND {PROD_SCOPE} AND total-value>0",
+)
+run(
+    "B: same scope, no total-value filter at all (2018)",
+    f"publication-date>=20180101 AND {PROD_SCOPE}",
+)
+run(
+    "C: same scope, recent/eForms-era date (2024-06 onward)",
+    f"publication-date>=20240601 AND {PROD_SCOPE} AND total-value>0",
+)
+run(
+    "D: recent date, no total-value filter",
+    f"publication-date>=20240601 AND {PROD_SCOPE}",
+)
+run(
+    "E: very recent (last 60 days), no filter beyond scope",
+    f"publication-date>=20260501 AND {PROD_SCOPE}",
+)
