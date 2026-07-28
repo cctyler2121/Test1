@@ -28,7 +28,12 @@ BUYER_COUNTRIES = ["DNK", "SWE", "NOR", "FIN", "DEU"]
 # CPV division prefixes: 79=business/consulting/research services,
 # 73=R&D services, 85=health & social work, 90=environmental services.
 CPV_PREFIXES = ["79", "73", "85", "90"]
-DATE_FROM = "20180101"  # matches the source dashboard's coverage start
+# eForms became mandatory for above-threshold EU procurement in late 2023;
+# notices from before that don't reliably expose structured `winner-name`
+# through this API regardless of query filters (confirmed empirically —
+# see README's "Known limitations"), so starting earlier mostly burns the
+# page budget on notices this pipeline can never attribute to a winner.
+DATE_FROM = "20240101"
 # -----------------------------------------------------------------------
 
 FIELDS = [
@@ -52,13 +57,17 @@ REQUEST_DELAY_SECONDS = 0.3
 
 
 def build_query():
+    # No total-value filter: it doesn't correlate with winner-name presence
+    # (confirmed empirically — some awards carry total-value=0, some
+    # notices with a positive total-value have no winner at all), so it
+    # only discarded valid records without concentrating useful ones.
+    # Notices with no winner are filtered out later, in flatten_notice().
     cpv_clause = " OR ".join(f"classification-cpv={p}*" for p in CPV_PREFIXES)
     country_list = ", ".join(BUYER_COUNTRIES)
     return (
         f"publication-date>={DATE_FROM} AND "
         f"({cpv_clause}) AND "
-        f"buyer-country IN ({country_list}) AND "
-        f"total-value>0"
+        f"buyer-country IN ({country_list})"
     )
 
 
@@ -140,6 +149,27 @@ def first_text(multilang_dict_or_value):
     return multilang_dict_or_value
 
 
+def all_texts(multilang_dict_or_value):
+    """winner-name comes back the same shape as buyer-name — a dict keyed
+    by language code, e.g. {"deu": ["Company A", "Company B"]} — but unlike
+    buyer-name we need every winner, not just the first. Flattens to a
+    plain list of strings regardless of whether the API gave a dict, a
+    flat list, or a single scalar."""
+    if not multilang_dict_or_value:
+        return []
+    if isinstance(multilang_dict_or_value, dict):
+        out = []
+        for values in multilang_dict_or_value.values():
+            if isinstance(values, list):
+                out.extend(values)
+            elif values:
+                out.append(values)
+        return out
+    if isinstance(multilang_dict_or_value, list):
+        return multilang_dict_or_value
+    return [multilang_dict_or_value]
+
+
 def flatten_notice(notice, rate_table):
     """One TED notice can have multiple winners (multi-lot awards). Emit one
     flat award record per distinct winner. When the API gives a single
@@ -148,7 +178,7 @@ def flatten_notice(notice, rate_table):
     per-lot join (the flat search API doesn't expose lot-to-winner
     correspondence; true precision would require fetching each notice's
     full XML)."""
-    winners = as_list(notice.get("winner-name"))
+    winners = all_texts(notice.get("winner-name"))
     distinct_winners = list(dict.fromkeys(w for w in winners if w))
     if not distinct_winners:
         return []

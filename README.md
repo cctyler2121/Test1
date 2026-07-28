@@ -57,7 +57,8 @@ Edit the constants at the top of `scripts/ted_fetch.py`:
 - `CPV_PREFIXES` — CPV division prefixes to include. Currently `79`
   (business/consulting/research services), `73` (R&D services), `85`
   (health & social work), `90` (environmental services).
-- `DATE_FROM` — coverage start date (`YYYYMMDD`), currently `20180101`.
+- `DATE_FROM` — coverage start date (`YYYYMMDD`), currently `20240101` (see
+  "Known limitations" for why it isn't set earlier).
 
 Widening scope significantly (e.g. all EU countries, all CPV codes) will
 increase the number of notices well into the millions — `MAX_PAGES` in
@@ -67,6 +68,28 @@ expect a much longer run and a much bigger committed dataset.
 
 ## Known limitations
 
+- **Coverage effectively starts in the eForms era (~2024), not 2018.**
+  Confirmed empirically against the live API: pre-eForms notices (eForms
+  became mandatory for above-threshold EU procurement in late 2023)
+  consistently come back with no `winner-name` at all through this Search
+  API, regardless of query filters — sampled 2018 notices with a real
+  `total-value` still had `winner-name=None`, while 2024+ samples reliably
+  carry populated, multi-winner `winner-name` data. `DATE_FROM` defaults to
+  `20240101` so the page budget isn't spent on notices this pipeline can
+  never attribute to a winner; the source TED dashboard's 2018 start date
+  isn't achievable through this field, at least not without a different
+  data path (e.g. parsing full per-notice XML instead of the flat search
+  fields).
+- **No reliable query-side filter for "this notice has a winner".** A
+  `total-value>0` filter looks like it should proxy for "this is an award
+  notice," but doesn't: some real awards carry `total-value=0` (e.g.
+  framework agreements), and some notices with a positive `total-value`
+  have no winner at all (likely an estimated value on a still-open
+  tender). The API's expert-query syntax also doesn't support `IS NOT
+  NULL`/`EXISTS()`-style existence checks (confirmed — both are syntax
+  errors). So this pipeline fetches broadly within the CPV/country/date
+  scope and filters for a populated `winner-name` client-side, after the
+  fetch, discarding notices with no winner.
 - **Multi-winner notices**: the TED Search API's flat `fields` response
   doesn't expose which winner corresponds to which lot when a notice has
   several. When a notice has multiple distinct winners, this pipeline
