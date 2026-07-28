@@ -53,7 +53,7 @@ FIELDS = [
 
 PAGE_LIMIT = 250
 MAX_PAGES = 200  # safety valve: up to 50,000 notices per run
-REQUEST_DELAY_SECONDS = 0.3
+REQUEST_DELAY_SECONDS = 0.5  # the API starts returning 429 after ~24 rapid requests
 
 
 def build_query():
@@ -71,6 +71,10 @@ def build_query():
     )
 
 
+RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
+MAX_RETRIES = 5
+
+
 def post(payload, timeout=30):
     req = urllib.request.Request(
         BASE,
@@ -78,12 +82,23 @@ def post(payload, timeout=30):
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        raise RuntimeError(f"TED API error {e.code}: {body[:1000]}")
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                delay = float(retry_after) if retry_after else min(2 ** attempt, 30)
+                print(
+                    f"TED API returned {e.code}, retrying in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{MAX_RETRIES})",
+                    flush=True,
+                )
+                time.sleep(delay)
+                continue
+            body = e.read().decode()
+            raise RuntimeError(f"TED API error {e.code}: {body[:1000]}")
 
 
 NEXT_TOKEN_KEYS = ["iterationNextToken", "nextToken", "cursor", "scrollId"]
