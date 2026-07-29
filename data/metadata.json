@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-28T21:03:45.358522+00:00",
+  "generated_at": "2026-07-29T06:16:59.928440+00:00",
   "buyer_countries": [
     "DNK",
     "SWE",
@@ -14,7 +14,7 @@
     "90"
   ],
   "date_from": "20240101",
-  "notice_count": 80725,
-  "record_count": 48565,
-  "company_count": 21549
+  "notice_count": 80823,
+  "record_count": 48646,
+  "company_count": 21585
 }
