@@ -1,6 +1,9 @@
 # Raw flat TED fetch dump: not read by the dashboard, uploaded as a
 # GitHub Actions build artifact instead of committed (avoids repo bloat).
 data/contract_awards.json
+# Superseded by the gzipped data/companies.json.gz (the plain file blew
+# past GitHub's 100MB per-file push limit at full-EU scope).
+data/companies.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

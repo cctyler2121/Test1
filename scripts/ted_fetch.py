@@ -7,6 +7,7 @@ Must be run from an environment with real internet access (TED is not
 reachable from some sandboxed CI/dev environments) — a GitHub Actions runner
 works. See README.md for how this fits into the scheduled pipeline.
 """
+import gzip
 import json
 import os
 import sys
@@ -24,7 +25,14 @@ BASE = "https://api.ted.europa.eu/v3/notices/search"
 # --- Scope: adjust these to change what the pipeline pulls -----------------
 # Buyer countries (ISO 3166-1 alpha-3, TED's convention) — i.e. tenders run
 # BY these countries' contracting authorities, regardless of who wins.
-BUYER_COUNTRIES = ["DNK", "SWE", "NOR", "FIN", "DEU"]
+# All 27 EU member states plus Norway (EEA, publishes above-threshold
+# notices to TED same as EU members).
+BUYER_COUNTRIES = [
+    "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA",
+    "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD",
+    "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE",
+    "NOR",
+]
 # CPV division prefixes: 79=business/consulting/research services,
 # 73=R&D services, 85=health & social work, 90=environmental services.
 CPV_PREFIXES = ["79", "73", "85", "90"]
@@ -38,7 +46,6 @@ DATE_FROM = "20240101"
 
 FIELDS = [
     "publication-number",
-    "notice-title",
     "buyer-name",
     "buyer-country",
     "classification-cpv",
@@ -214,7 +221,6 @@ def flatten_notice(notice, rate_table):
     buyer_country = as_list(notice.get("buyer-country"))
     buyer_country = buyer_country[0] if buyer_country else None
     cpv_codes = sorted(set(as_list(notice.get("classification-cpv"))))
-    notice_title = first_text(notice.get("notice-title"))
     html_link = None
     links = notice.get("links") or {}
     html_links = links.get("html") or {}
@@ -230,7 +236,6 @@ def flatten_notice(notice, rate_table):
         records.append(
             {
                 "publication_number": notice.get("publication-number"),
-                "notice_title": notice_title,
                 "buyer_name": buyer_name,
                 "buyer_country": buyer_country,
                 "cpv_codes": cpv_codes,
@@ -275,18 +280,27 @@ def main():
     alias_path = os.path.join(out_dir, "company_aliases.json")
     groups = resolve_companies(records, alias_path=alias_path)
     companies = summarize(groups)
-    companies_path = os.path.join(out_dir, "companies.json")
-    with open(companies_path, "w", encoding="utf-8") as f:
-        json.dump(companies, f, ensure_ascii=False, separators=(",", ":"))
+    companies_json = json.dumps(companies, ensure_ascii=False, separators=(",", ":"))
+    companies_raw_mb = len(companies_json.encode("utf-8")) / (1024 * 1024)
+
+    # gzip, not just compact JSON: at full-EU scope the plain file blew
+    # past GitHub's 100MB per-file push limit (99.6MB observed at
+    # ~206k records). Highly repetitive structured JSON compresses well
+    # (~6-8x observed), and the dashboard decompresses it client-side via
+    # the browser's native DecompressionStream — no extra dependency.
+    companies_path = os.path.join(out_dir, "companies.json.gz")
+    with open(companies_path, "wb") as f:
+        f.write(gzip.compress(companies_json.encode("utf-8"), compresslevel=9))
 
     companies_mb = os.path.getsize(companies_path) / (1024 * 1024)
     print(f"Resolved {len(records)} records into {len(companies)} canonical companies", flush=True)
-    print(f"companies.json is {companies_mb:.1f} MB", flush=True)
+    print(f"companies.json is {companies_raw_mb:.1f} MB uncompressed, {companies_mb:.1f} MB gzipped", flush=True)
     if companies_mb > 90:
         raise RuntimeError(
-            f"companies.json is {companies_mb:.1f} MB, too close to GitHub's 100MB "
-            "per-file push limit. Narrow the scope (fewer countries/CPV codes, "
-            "shorter date range) or restructure storage before committing."
+            f"companies.json.gz is {companies_mb:.1f} MB even gzipped, too close to "
+            "GitHub's 100MB per-file push limit. Narrow the scope (fewer "
+            "countries/CPV codes, shorter date range) or shard storage across "
+            "multiple files before committing."
         )
 
     metadata = {

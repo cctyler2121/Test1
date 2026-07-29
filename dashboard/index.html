@@ -285,6 +285,22 @@ function escapeHtml(s) {
 
 let companies = [];
 
+// companies.json is committed gzipped (data/companies.json.gz) because the
+// plain file is too large for GitHub's 100MB per-file push limit at
+// full-EU scope. Decompress with the browser's native DecompressionStream
+// (Chrome/Edge 80+, Firefox 113+, Safari 16.4+) rather than adding a JS
+// gunzip dependency.
+async function fetchGzipJson(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`fetch ${url} failed: ${resp.status}`);
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('This browser lacks DecompressionStream support (needed to read the gzipped dataset). Try a recent Chrome, Edge, Firefox, or Safari.');
+  }
+  const decompressed = resp.body.pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(decompressed).text();
+  return JSON.parse(text);
+}
+
 async function init() {
   let metadata = null;
   try {
@@ -292,11 +308,11 @@ async function init() {
   } catch (e) { /* optional */ }
 
   try {
-    companies = await fetch('../data/companies.json').then(r => r.json());
+    companies = await fetchGzipJson('../data/companies.json.gz');
   } catch (e) {
     document.getElementById('results').innerHTML =
-      '<p class="empty-state">Could not load data/companies.json. Run scripts/ted_fetch.py first, ' +
-      'and serve this page over HTTP (not file://) so the browser can fetch local JSON.</p>';
+      `<p class="empty-state">Could not load data/companies.json.gz (${escapeHtml(e.message)}). ` +
+      'Run scripts/ted_fetch.py first, and serve this page over HTTP (not file://) so the browser can fetch local data.</p>';
     document.getElementById('subtitle').textContent = 'No data loaded.';
     return;
   }

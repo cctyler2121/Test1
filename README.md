@@ -34,22 +34,33 @@ scripts/entity_resolution.py → groups records by normalized winner name
                                Ltd, Sp. z o.o., B.V., Oy, AB, ...), with a
                                manual override file for cases automatic
                                normalization gets wrong. Writes:
-                                 data/companies.json (rolled-up per-company view)
+                                 data/companies.json.gz (rolled-up per-company view, gzipped)
 scripts/ecb_rates.py         → downloads ECB historical daily FX rates for
                                currency conversion
-dashboard/index.html         → static page reading data/companies.json and
+dashboard/index.html         → static page reading data/companies.json.gz
+                               (decompressed client-side via the browser's
+                               native DecompressionStream) and
                                data/metadata.json: search by company name,
                                see rolled-up totals, expand to see
                                legal-entity variants and underlying contracts
 ```
 
 `.github/workflows/ted-fetch.yml` runs `ted_fetch.py` on a schedule and
-commits the refreshed `data/companies.json` and `data/metadata.json` —
+commits the refreshed `data/companies.json.gz` and `data/metadata.json` —
 that's what keeps the dashboard "live" without any session needing direct
 network access to TED. `data/contract_awards.json` (the raw flat dump,
 unused by the dashboard) is uploaded as a 30-day GitHub Actions build
 artifact instead of committed, to keep the git repo from growing by tens
 of megabytes every single day forever.
+
+`companies.json` is committed gzipped, not plain: at full-EU scope
+(~206k award records) the plain file measured 99.6MB, essentially at
+GitHub's 100MB per-file push limit. Gzip got it down to a comfortable
+fraction of that (structured JSON with this much repetition compresses
+~6-8x). The dashboard fetches the `.gz` file and decompresses it in the
+browser — no server-side involvement, no build step, no added JS
+dependency (`DecompressionStream` is native in Chrome/Edge 80+, Firefox
+113+, Safari 16.4+).
 
 **The daily schedule only takes effect once this workflow is on `main`** —
 GitHub only fires `schedule:` triggers from the repository's default
@@ -62,23 +73,26 @@ Edit the constants at the top of `scripts/ted_fetch.py`:
 
 - `BUYER_COUNTRIES` — ISO 3166-1 alpha-3 codes for the contracting
   authorities' countries (i.e. where the tender was run, not where the
-  winner is based). Currently `DNK, SWE, NOR, FIN, DEU`.
+  winner is based). Currently all 27 EU member states plus Norway (EEA,
+  publishes above-threshold notices to TED same as EU members).
 - `CPV_PREFIXES` — CPV division prefixes to include. Currently `79`
   (business/consulting/research services), `73` (R&D services), `85`
   (health & social work), `90` (environmental services).
 - `DATE_FROM` — coverage start date (`YYYYMMDD`), currently `20240101` (see
   "Known limitations" for why it isn't set earlier).
 
-Widening scope significantly (e.g. all EU countries, all CPV codes) will
-increase the number of notices well into the millions. `MAX_PAGES` in
-`ted_fetch.py` is now a circuit breaker against a runaway/looping bug
-(8,000 pages × 250 notices = 2,000,000), not a real cap on this scope —
-raising it further only matters if you widen scope enough to actually hit
-it. The real limit to watch is **`companies.json` staying under GitHub's
-100MB per-file push limit**: `ted_fetch.py` writes compact (non-indented)
-JSON and refuses to write a `companies.json` over 90MB (raises instead of
-producing a file the workflow's `git push` would just reject). If you hit
-that ceiling, narrow scope rather than raising it further.
+Widening scope significantly (e.g. all CPV codes instead of the current
+four divisions) will increase the number of notices well into the
+millions. `MAX_PAGES` in `ted_fetch.py` is now a circuit breaker against a
+runaway/looping bug (8,000 pages × 250 notices = 2,000,000), not a real
+cap on the current scope — raising it further only matters if you widen
+scope enough to actually hit it. The real limit to watch is
+**`companies.json.gz` staying under GitHub's 100MB per-file push limit**:
+`ted_fetch.py` refuses to write one over 90MB (raises instead of producing
+a file the workflow's `git push` would just reject). If you hit that
+ceiling even gzipped, narrow scope (fewer CPV codes, shorter date range)
+or shard the data across multiple committed files — raising the limit
+further isn't an option, that's GitHub's own ceiling.
 
 ## Known limitations
 
@@ -104,6 +118,22 @@ that ceiling, narrow scope rather than raising it further.
   errors). So this pipeline fetches broadly within the CPV/country/date
   scope and filters for a populated `winner-name` client-side, after the
   fetch, discarding notices with no winner.
+- **A notice's `total-value` can be a framework ceiling, not an actual
+  award/spend amount, with no way to tell the two apart via this API.**
+  Confirmed on a real notice (Banedanmark/Rambøll, publication 589103-2024,
+  a "Rammeaftale" framework re-tender): `total-value` was 45B DKK
+  (~EUR 6.03bn), and TED's own `result-value-notice` field — which should
+  represent the actual outcome value — agreed with it exactly, while every
+  dedicated framework-ceiling field (`framework-maximum-value-*`,
+  `framework-estimated-value`, `framework-value-notice`) was empty for that
+  notice. So TED's own system doesn't consistently separate "ceiling" from
+  "amount actually spent" for frameworks, at least not in a way this API
+  exposes — an unusually large number for one notice is worth checking the
+  linked notice for before relying on it, particularly for framework
+  agreements. (An earlier version of the dashboard auto-flagged large
+  values with a badge; removed because at the top of any "biggest
+  contracts" view, nearly everything is large by construction, so the
+  badge fired almost everywhere and stopped being a useful signal.)
 - **Multi-winner notices**: the TED Search API's flat `fields` response
   doesn't expose which winner corresponds to which lot when a notice has
   several. When a notice has multiple distinct winners, this pipeline

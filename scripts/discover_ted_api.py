@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Third-pass diagnostic: the real production fetch (ted_fetch.py) pulled
-50,000 real notices matching our scope query but extracted zero winner-name
-values from any of them. This checks whether that's specific to older
-(pre-eForms, likely pre-mid-2023) notices — TED's Search API abstracts over
-two different underlying notice schemas, and older notices may not populate
-`winner-name` the same way through this field API — or something wrong with
-the `total-value>0` filter itself.
+"""Fourth-pass diagnostic: notice 589103-2024 (Banedanmark, Rambøll) shows
+total-value=45,000,000,000 DKK (~EUR 6.03bn) for what looks like a
+framework-agreement re-tender. Need to know whether that's a framework
+ceiling or an actual call-off/award value, and whether a more specific
+field (result-value-lot, tender-value, etc.) represents the real awarded
+amount per winner. Run from an environment with real internet access.
 """
 import json
 import urllib.error
@@ -13,19 +12,36 @@ import urllib.request
 
 BASE = "https://api.ted.europa.eu/v3/notices/search"
 
-FIELDS = [
+VALUE_FIELDS = [
     "publication-number",
     "notice-title",
-    "buyer-name",
-    "buyer-country",
-    "classification-cpv",
     "winner-name",
-    "winner-country",
-    "winner-decision-date",
     "total-value",
     "total-value-cur",
-    "publication-date",
-    "links",
+    "tender-value",
+    "tender-value-cur",
+    "tender-value-lowest",
+    "tender-value-highest",
+    "tender-value-cur-lowest",
+    "tender-value-cur-highest",
+    "result-value-lot",
+    "result-value-notice",
+    "result-value-cur-lot",
+    "result-value-cur-notice",
+    "framework-maximum-value-glo",
+    "framework-maximum-value-lot",
+    "framework-maximum-value-cur-glo",
+    "framework-maximum-value-cur-lot",
+    "framework-estimated-value",
+    "framework-estimated-value-cur",
+    "framework-value-notice",
+    "framework-value-cur-notice",
+    "result-framework-maximum-value-notice",
+    "result-framework-maximum-value-cur-notice",
+    "estimated-value-proc",
+    "estimated-value-cur-proc",
+    "estimated-value-lot",
+    "estimated-value-cur-lot",
 ]
 
 
@@ -45,48 +61,56 @@ def post(payload):
         return None, repr(e)
 
 
-def run(label, query, limit=3):
-    print(f"\n=== {label} ===", flush=True)
-    print(f"query: {query}", flush=True)
+def main():
+    print("=== All value-related fields for notice 589103-2024 ===", flush=True)
     status, body = post(
-        {"query": query, "fields": FIELDS, "limit": limit, "scope": "ALL", "checkQuerySyntax": False}
+        {
+            "query": "publication-number=589103-2024",
+            "fields": VALUE_FIELDS,
+            "limit": 1,
+            "scope": "ALL",
+            "checkQuerySyntax": False,
+        }
     )
-    print(status)
+    print(status, flush=True)
     try:
         data = json.loads(body)
         notices = data.get("notices", [])
-        print(f"got {len(notices)} notices")
-        for n in notices:
-            keys_present = sorted(n.keys())
-            print(f"  publication-number={n.get('publication-number')} keys_present={keys_present}")
-            print(f"    winner-name={n.get('winner-name')!r}")
-            print(f"    total-value={n.get('total-value')!r} total-value-cur={n.get('total-value-cur')!r}")
+        if not notices:
+            print("No notice found. Raw body:", body[:2000])
+            return
+        notice = notices[0]
+        for field in VALUE_FIELDS:
+            print(f"{field}: {notice.get(field)!r}")
+    except Exception as e:
+        print("parse failed:", e, body[:2000])
+
+    print("\n=== Same fields on a handful of other 2024+ notices in scope, for comparison ===", flush=True)
+    status, body = post(
+        {
+            "query": (
+                "publication-date>=20240101 AND "
+                "(classification-cpv=79* OR classification-cpv=73* OR classification-cpv=85* OR classification-cpv=90*) "
+                "AND buyer-country IN (DNK, SWE, NOR, FIN, DEU)"
+            ),
+            "fields": VALUE_FIELDS,
+            "limit": 5,
+            "scope": "ALL",
+            "checkQuerySyntax": False,
+        }
+    )
+    print(status, flush=True)
+    try:
+        data = json.loads(body)
+        for notice in data.get("notices", []):
+            print(f"--- {notice.get('publication-number')} ---")
+            for field in VALUE_FIELDS:
+                val = notice.get(field)
+                if val is not None:
+                    print(f"  {field}: {val!r}")
     except Exception as e:
         print("parse failed:", e, body[:2000])
 
 
-PROD_SCOPE = (
-    "(classification-cpv=79* OR classification-cpv=73* OR classification-cpv=85* OR classification-cpv=90*) "
-    "AND buyer-country IN (DNK, SWE, NOR, FIN, DEU)"
-)
-
-run(
-    "A: exact production query, oldest end (2018)",
-    f"publication-date>=20180101 AND {PROD_SCOPE} AND total-value>0",
-)
-run(
-    "B: same scope, no total-value filter at all (2018)",
-    f"publication-date>=20180101 AND {PROD_SCOPE}",
-)
-run(
-    "C: same scope, recent/eForms-era date (2024-06 onward)",
-    f"publication-date>=20240601 AND {PROD_SCOPE} AND total-value>0",
-)
-run(
-    "D: recent date, no total-value filter",
-    f"publication-date>=20240601 AND {PROD_SCOPE}",
-)
-run(
-    "E: very recent (last 60 days), no filter beyond scope",
-    f"publication-date>=20260501 AND {PROD_SCOPE}",
-)
+if __name__ == "__main__":
+    main()

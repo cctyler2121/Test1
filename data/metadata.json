@@ -1,11 +1,34 @@
 {
-  "generated_at": "2026-07-29T06:16:59.928440+00:00",
+  "generated_at": "2026-07-29T20:50:09.913358+00:00",
   "buyer_countries": [
+    "AUT",
+    "BEL",
+    "BGR",
+    "HRV",
+    "CYP",
+    "CZE",
     "DNK",
-    "SWE",
-    "NOR",
+    "EST",
     "FIN",
-    "DEU"
+    "FRA",
+    "DEU",
+    "GRC",
+    "HUN",
+    "IRL",
+    "ITA",
+    "LVA",
+    "LTU",
+    "LUX",
+    "MLT",
+    "NLD",
+    "POL",
+    "PRT",
+    "ROU",
+    "SVK",
+    "SVN",
+    "ESP",
+    "SWE",
+    "NOR"
   ],
   "cpv_prefixes": [
     "79",
@@ -14,7 +37,7 @@
     "90"
   ],
   "date_from": "20240101",
-  "notice_count": 80823,
-  "record_count": 48646,
-  "company_count": 21585
+  "notice_count": 325529,
+  "record_count": 206567,
+  "company_count": 90600
 }
