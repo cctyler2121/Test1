@@ -61,8 +61,27 @@ def _strip_phrases(tokens):
     return tokens
 
 _DIACRITIC_RE = re.compile(r"[̀-ͯ]")
-_NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
 _WS_RE = re.compile(r"\s+")
+
+# Minimum length of a normalized name before it's trusted as a grouping key.
+# Below this, normalization has stripped the name down to nothing
+# company-specific (often a raw winner-name that is itself just a bare
+# legal-form string like "SA" or "SARL" with no name at all — a TED source-
+# data quality issue, not a real company). Bucketing every such record
+# together under one shared empty/near-empty key falsely merges unrelated
+# companies, so resolve_companies() falls back to a per-raw-name key instead
+# of the normalized one when this threshold isn't met.
+MIN_NORMALIZED_LENGTH = 2
+
+
+def _strip_non_alnum(text):
+    """Replace everything that isn't a Unicode letter/digit/space with a
+    space. Unlike an ASCII-only [^a-z0-9\\s] regex, this preserves non-Latin
+    scripts (Greek, Cyrillic, etc.) instead of erasing them to nothing —
+    erasing them was collapsing many genuinely distinct companies down to
+    the same empty string.
+    """
+    return "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in text)
 
 # Letters that don't have a canonical Unicode decomposition (NFKD leaves
 # them untouched), so they need an explicit fold — common across Nordic,
@@ -86,7 +105,7 @@ def normalize(raw_name):
     text = unicodedata.normalize("NFKD", text)
     text = _DIACRITIC_RE.sub("", text)
     text = text.lower()
-    text = _NON_ALNUM_RE.sub(" ", text)
+    text = _strip_non_alnum(text)
     tokens = [t for t in text.split() if t]
     tokens = [t for t in tokens if t not in LEGAL_FORM_TOKENS]
     tokens = _strip_phrases(tokens)
@@ -124,7 +143,12 @@ def resolve_companies(records, alias_path=None):
         if not raw_name:
             continue
         norm = normalize(raw_name)
-        canonical_key = variant_overrides.get(norm, norm)
+        if norm in variant_overrides:
+            canonical_key = variant_overrides[norm]
+        elif len(norm) < MIN_NORMALIZED_LENGTH:
+            canonical_key = f"raw:{raw_name.strip().lower()}"
+        else:
+            canonical_key = norm
         if canonical_key not in groups:
             groups[canonical_key] = {
                 "display_name": raw_name,
