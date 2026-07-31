@@ -127,6 +127,12 @@ Two gaps worth knowing before reading too much into the categorized data:
 
 Refining either of these doesn't require a re-fetch: categorization runs as a post-processing step over each record's already-stored `cpv_codes`, so a taxonomy fix in `scripts/market_categories.py` takes effect on the next scheduled run.
 
+## Interactive country map
+
+The dashboard's "Explore by country" section is a real Europe map (not a stylized grid), built from [`@svg-maps/world`](https://github.com/VictorCazanave/svg-maps/tree/master/packages/world) (CC BY 4.0) — a per-country SVG path dataset keyed by ISO alpha-2 code. The subset embedded in `dashboard/index.html` was extracted with `svgpathtools` (compute each country's real bounding box, union the 28 target countries', crop to that plus a small margin, and keep every country whose shape falls substantially inside the crop as non-interactive geographic context — e.g. the UK, Switzerland, the Balkans, Ukraine — while everything outside that region, like North Africa or the Middle East, is dropped rather than clipped awkwardly). Country names shown in the drill-down panel come from the same source's `aria-label`s.
+
+Clicking a target country reads `market_trends.json`'s `by_country` (and `by_country_category_trends`) for that country's latest-complete-quarter breakdown — no extra network request, since the whole file is already loaded for the EU-wide panel above it. Map shading (the choropleth) is a sqrt-scaled interpolation between the theme's two blue tokens so one dominant country (usually Germany or France by sheer award volume) doesn't wash out the rest of the scale.
+
 ## Known limitations
 
 - **Coverage effectively starts in the eForms era (~2024), not 2018.**
