@@ -211,6 +211,13 @@ def build_market_trends(records, alias_path=None, today=None):
     latest_label = quarter_label(latest_complete) if latest_complete else None
     prior_label = quarter_label(prior) if prior else None
 
+    by_country_category_trends = {}
+    if latest_label and prior_label:
+        for country, country_by_quarter in by_country.items():
+            trends = _category_trends(country_by_quarter, latest_label, prior_label)
+            if trends:
+                by_country_category_trends[country] = trends
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "latest_complete_quarter": latest_label,
@@ -221,6 +228,7 @@ def build_market_trends(records, alias_path=None, today=None):
             _category_trends(eu_wide, latest_label, prior_label) if latest_label and prior_label else []
         ),
         "by_country": by_country,
+        "by_country_category_trends": by_country_category_trends,
     }
 
 
