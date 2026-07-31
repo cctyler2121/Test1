@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 from ecb_rates import RateTable, download_rates  # noqa: E402
 from entity_resolution import resolve_companies, summarize  # noqa: E402
+from market_categories import categorize  # noqa: E402
+from market_trends import build_market_trends  # noqa: E402
 
 BASE = "https://api.ted.europa.eu/v3/notices/search"
 
@@ -33,9 +35,29 @@ BUYER_COUNTRIES = [
     "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE",
     "NOR",
 ]
-# CPV division prefixes: 79=business/consulting/research services,
-# 73=R&D services, 85=health & social work, 90=environmental services.
-CPV_PREFIXES = ["79", "73", "85", "90"]
+# CPV prefixes in scope. The original four are whole divisions (broad
+# service categories); the market-trends additions below are deliberately
+# narrower than their divisions — divisions 45 (Construction work, 424K+
+# notices) and 71 (Architectural/engineering, 270K+ notices) are dominated
+# by generic building/renovation work unrelated to any tracked market
+# category, so only the specific group-level codes confirmed (via
+# scripts/discover_cpv_taxonomy.py against live data) to mean what their
+# name suggests are included. See scripts/market_categories.py for the
+# code -> category mapping this scope is built to feed.
+CPV_PREFIXES = [
+    "79",  # business/consulting services
+    "73",  # R&D services
+    "85",  # health & social work
+    "90",  # environmental services
+    "09",  # energy (electricity, fuel, gas, solar, district heating)
+    "31121300",  # wind-energy generators
+    "35",  # security/defence equipment
+    "45233",  # road/highway construction
+    "45234",  # railway construction
+    "45241",  # harbour construction
+    "45251",  # power plant construction (thermal/hydro/gas/district-heating)
+    "72",  # IT/digital services
+]
 # eForms became mandatory for above-threshold EU procurement in late 2023;
 # notices from before that don't reliably expose structured `winner-name`
 # through this API regardless of query filters (confirmed empirically —
@@ -221,6 +243,7 @@ def flatten_notice(notice, rate_table):
     buyer_country = as_list(notice.get("buyer-country"))
     buyer_country = buyer_country[0] if buyer_country else None
     cpv_codes = sorted(set(as_list(notice.get("classification-cpv"))))
+    market_category = categorize(cpv_codes)
     html_link = None
     links = notice.get("links") or {}
     html_links = links.get("html") or {}
@@ -239,6 +262,7 @@ def flatten_notice(notice, rate_table):
                 "buyer_name": buyer_name,
                 "buyer_country": buyer_country,
                 "cpv_codes": cpv_codes,
+                "market_category": market_category,
                 "winner_name": winner_name,
                 "publication_date": publication_date,
                 "total_value": value,
@@ -314,6 +338,18 @@ def main():
     }
     with open(os.path.join(out_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+    trends = build_market_trends(records, alias_path=alias_path)
+    trends_path = os.path.join(out_dir, "market_trends.json")
+    with open(trends_path, "w", encoding="utf-8") as f:
+        json.dump(trends, f, ensure_ascii=False, separators=(",", ":"))
+    trends_kb = os.path.getsize(trends_path) / 1024
+    print(
+        f"market_trends.json is {trends_kb:.1f} KB: {len(trends['quarters'])} quarters, "
+        f"{len(trends['by_country'])} countries, latest complete quarter "
+        f"{trends['latest_complete_quarter']}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
