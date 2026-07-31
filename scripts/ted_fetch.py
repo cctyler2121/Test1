@@ -128,6 +128,24 @@ def post(payload, timeout=30):
                 continue
             body = e.read().decode()
             raise RuntimeError(f"TED API error {e.code}: {body[:1000]}")
+        except urllib.error.URLError as e:
+            # Lower-level connection failures (reset, timeout, DNS) never
+            # produce an HTTP response, so HTTPError above doesn't catch
+            # them at all -- confirmed in production: a multi-hour
+            # paginated fetch died on a single ConnectionResetError after
+            # successfully fetching 159,500 notices, losing all of that
+            # progress. Treat these the same as a retryable HTTP error
+            # instead of crashing the whole run over a transient blip.
+            if attempt < MAX_RETRIES:
+                delay = min(2 ** attempt, 30)
+                print(
+                    f"TED API connection error ({e.reason}), retrying in {delay:.0f}s "
+                    f"(attempt {attempt + 1}/{MAX_RETRIES})",
+                    flush=True,
+                )
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"TED API connection error after {MAX_RETRIES} retries: {e.reason}")
 
 
 NEXT_TOKEN_KEYS = ["iterationNextToken", "nextToken", "cursor", "scrollId"]
