@@ -26,7 +26,8 @@ the debugging channel when something about the API needs to change.
 scripts/ted_fetch.py        → queries the TED Search API, paginates through
                                all matching notices, converts each award's
                                value to EUR at the ECB reference rate for
-                               its notice date, writes:
+                               its notice date, tags each record with a
+                               market category (see below), writes:
                                  data/contract_awards.json (flat records — not committed, see below)
                                  data/metadata.json (run info)
 scripts/entity_resolution.py → groups records by normalized winner name
@@ -35,14 +36,24 @@ scripts/entity_resolution.py → groups records by normalized winner name
                                manual override file for cases automatic
                                normalization gets wrong. Writes:
                                  data/companies.json.gz (rolled-up per-company view, gzipped)
+scripts/market_categories.py → maps a notice's CPV code(s) to one market
+                               category (Wind Energy, Roads & Highways,
+                               Defence & Security Equipment, etc.) — see
+                               "Market categories" below
+scripts/market_trends.py    → buckets records by calendar quarter (EU-wide
+                               and per-country) into category/buyer/
+                               contractor rollups plus quarter-over-quarter
+                               trend flags. Writes:
+                                 data/market_trends.json
 scripts/ecb_rates.py         → downloads ECB historical daily FX rates for
                                currency conversion
 dashboard/index.html         → static page reading data/companies.json.gz
                                (decompressed client-side via the browser's
-                               native DecompressionStream) and
-                               data/metadata.json: search by company name,
-                               see rolled-up totals, expand to see
-                               legal-entity variants and underlying contracts
+                               native DecompressionStream), data/metadata.json,
+                               and data/market_trends.json: a "this quarter"
+                               market-trends panel, company search with
+                               rolled-up totals, and expandable legal-entity
+                               variants and underlying contracts
 ```
 
 `.github/workflows/ted-fetch.yml` runs `ted_fetch.py` on a schedule and
@@ -75,9 +86,20 @@ Edit the constants at the top of `scripts/ted_fetch.py`:
   authorities' countries (i.e. where the tender was run, not where the
   winner is based). Currently all 27 EU member states plus Norway (EEA,
   publishes above-threshold notices to TED same as EU members).
-- `CPV_PREFIXES` — CPV division prefixes to include. Currently `79`
-  (business/consulting/research services), `73` (R&D services), `85`
-  (health & social work), `90` (environmental services).
+- `CPV_PREFIXES` — CPV prefixes to include. The original four are whole
+  divisions: `79` (business/consulting/research services), `73` (R&D
+  services), `85` (health & social work), `90` (environmental services).
+  The market-trends additions are deliberately narrower than their parent
+  divisions — divisions `45` (Construction work, 424K+ notices in scope)
+  and `71` (Architectural/engineering, 270K+ notices) are dominated by
+  generic building/renovation work unrelated to any tracked category, so
+  only specific group-level codes are included: `09` (energy), `31121300`
+  (wind-energy generators specifically, not all electrical machinery),
+  `35` (security/defence equipment), `45233` (roads), `45234` (rail),
+  `45241` (harbours), `45251` (power plant construction), `72` (IT/digital
+  services). Every prefix here was verified against live TED data first
+  (see `scripts/discover_cpv_taxonomy.py`) rather than assumed from the CPV
+  spec — see "Market categories" below for what's still uncertain.
 - `DATE_FROM` — coverage start date (`YYYYMMDD`), currently `20240101` (see
   "Known limitations" for why it isn't set earlier).
 
@@ -93,6 +115,17 @@ a file the workflow's `git push` would just reject). If you hit that
 ceiling even gzipped, narrow scope (fewer CPV codes, shorter date range)
 or shard the data across multiple committed files — raising the limit
 further isn't an option, that's GitHub's own ceiling.
+
+## Market categories
+
+Each award record is tagged with one market category (`scripts/market_categories.py`) derived from its CPV code(s), used by the dashboard's "this quarter" trends panel. A notice can carry multiple CPV codes describing different facets of the same contract; the category mapping is priority-ordered (most specific first) so a notice that's physically a wind-farm contract but also touches consulting services is tagged "Wind Energy," not "Consulting."
+
+Two gaps worth knowing before reading too much into the categorized data:
+
+- **Nuclear isn't split out from power-plant construction generally.** CPV code `45251*` covers power-plant construction broadly (thermal, hydro, gas, district-heating, and presumably nuclear), and probing the live API didn't turn up a distinct, confirmed nuclear-specific subcode (a first guess, `45262*`, turned out to be generic "specialist construction" — concrete repair, supporting walls — not nuclear at all). Nuclear contracts currently fall under "Power Plants (General)" rather than their own category.
+- **"Defence & Security Equipment" likely won't reflect military procurement volume.** Sampling CPV division `35` against live data returned firefighting vehicles, CCTV/surveillance systems, and general security equipment — not weapons or classified military contracts. This tracks with EU rules (Treaty Article 346 lets member states exempt sensitive military procurement from public tender publication), so this category is expected to skew toward public-safety equipment rather than defence spend in the colloquial sense.
+
+Refining either of these doesn't require a re-fetch: categorization runs as a post-processing step over each record's already-stored `cpv_codes`, so a taxonomy fix in `scripts/market_categories.py` takes effect on the next scheduled run.
 
 ## Known limitations
 
