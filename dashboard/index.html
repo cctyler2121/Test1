@@ -617,14 +617,19 @@ async function init() {
   }
 
   // Optional — older data generations won't have this file yet, and the
-  // company rollup above shouldn't be blocked by its absence.
+  // company rollup above shouldn't be blocked by its absence. The map's
+  // click handling is wired up unconditionally below regardless of whether
+  // this load succeeds, so a missing/slow trends file degrades to a
+  // static-colored map with an informative panel rather than a map that
+  // silently does nothing when clicked.
   try {
     marketTrends = await fetch('../data/market_trends.json').then(r => r.ok ? r.json() : null);
     if (marketTrends && marketTrends.latest_complete_quarter) {
       renderQuarterSection(marketTrends);
-      renderMapSection(marketTrends);
+      renderMapChoropleth(marketTrends);
     }
   } catch (e) { /* optional */ }
+  initMapInteractivity();
 
   renderStats();
   renderTopChart();
@@ -731,7 +736,20 @@ function countryTotalValue(trends, a3, quarter) {
   return Object.values(scope.by_category || {}).reduce((s, b) => s + (b.total_value_eur || 0), 0);
 }
 
-function renderMapSection(trends) {
+// Click handling is independent of whether market_trends.json loaded, so a
+// missing/slow/failed fetch never leaves the map looking clickable but
+// inert — selectCountry() itself handles the no-data case.
+function initMapInteractivity() {
+  document.querySelectorAll('#europeMap .country.target').forEach(el => {
+    el.addEventListener('click', () => selectCountry(el.dataset.a3));
+  });
+  document.getElementById('closeCountryPanel').addEventListener('click', closeCountryPanel);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeCountryPanel();
+  });
+}
+
+function renderMapChoropleth(trends) {
   const latest = trends.latest_complete_quarter;
   const targets = Array.from(document.querySelectorAll('#europeMap .country.target'));
   if (!targets.length) return;
@@ -743,12 +761,6 @@ function renderMapSection(trends) {
     // sqrt scale so one dominant country doesn't wash out the rest
     const t = Math.sqrt(values[i] / maxValue);
     el.style.fill = mixColor(t);
-    el.addEventListener('click', () => selectCountry(el.dataset.a3));
-  });
-
-  document.getElementById('closeCountryPanel').addEventListener('click', closeCountryPanel);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeCountryPanel();
   });
 }
 
@@ -771,10 +783,6 @@ function hexToRgb(hex) {
 }
 
 function selectCountry(a3) {
-  if (!marketTrends) return;
-  const latest = marketTrends.latest_complete_quarter;
-  const prior = marketTrends.prior_quarter;
-  const scope = marketTrends.by_country?.[a3]?.[latest];
   const label = COUNTRY_LABELS[a3] || a3;
 
   document.querySelectorAll('#europeMap .country.target').forEach(el => {
@@ -782,6 +790,20 @@ function selectCountry(a3) {
   });
   document.getElementById('mapLayout').classList.add('selected');
   document.getElementById('countryPanelName').textContent = label;
+
+  if (!marketTrends) {
+    document.getElementById('countryPanelSubtitle').textContent =
+      'Market-trends data isn\'t available yet — it\'s produced by the scheduled TED fetch and hasn\'t run since this feature shipped. Check back after the next run.';
+    document.getElementById('countryStatRow').innerHTML = '';
+    document.getElementById('countryCategoryTrends').innerHTML = '';
+    document.getElementById('countryBuyers').innerHTML = '';
+    document.getElementById('countryContractors').innerHTML = '';
+    return;
+  }
+
+  const latest = marketTrends.latest_complete_quarter;
+  const prior = marketTrends.prior_quarter;
+  const scope = marketTrends.by_country?.[a3]?.[latest];
 
   if (!scope) {
     document.getElementById('countryPanelSubtitle').textContent =
