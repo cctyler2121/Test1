@@ -21,6 +21,7 @@ from ecb_rates import RateTable, download_rates  # noqa: E402
 from entity_resolution import resolve_companies, summarize  # noqa: E402
 from market_categories import categorize  # noqa: E402
 from market_trends import build_market_trends  # noqa: E402
+from value_sanity import sanitize_value_eur  # noqa: E402
 
 BASE = "https://api.ted.europa.eu/v3/notices/search"
 
@@ -274,6 +275,7 @@ def flatten_notice(notice, rate_table):
             if value is not None and currency
             else None
         )
+        sanitized_value_eur = sanitize_value_eur(value_eur)
         records.append(
             {
                 "publication_number": notice.get("publication-number"),
@@ -285,9 +287,10 @@ def flatten_notice(notice, rate_table):
                 "publication_date": publication_date,
                 "total_value": value,
                 "total_value_cur": currency,
-                "total_value_eur": value_eur,
+                "total_value_eur": sanitized_value_eur,
                 "notice_url": html_link,
                 "multi_winner_notice": len(distinct_winners) > 1,
+                "value_excluded_outlier": sanitized_value_eur is None and value_eur is not None,
             }
         )
     return records
