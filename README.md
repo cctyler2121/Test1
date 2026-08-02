@@ -47,6 +47,10 @@ scripts/market_trends.py    → buckets records by calendar quarter (EU-wide
                                  data/market_trends.json
 scripts/ecb_rates.py         → downloads ECB historical daily FX rates for
                                currency conversion
+scripts/value_sanity.py      → excludes a record's EUR value from
+                               aggregates if it's implausibly large (see
+                               "Known limitations") — a source-data
+                               safeguard, not a currency conversion step
 dashboard/index.html         → static page reading data/companies.json.gz
                                (decompressed client-side via the browser's
                                native DecompressionStream), data/metadata.json,
@@ -157,6 +161,29 @@ Clicking a target country reads `market_trends.json`'s `by_country` (and `by_cou
   errors). So this pipeline fetches broadly within the CPV/country/date
   scope and filters for a populated `winner-name` client-side, after the
   fetch, discarding notices with no winner.
+- **A small number of notices report an implausibly large `total-value`
+  that's almost certainly a data-entry error at the source, not a
+  currency-conversion bug.** Confirmed twice in production: a Greek
+  municipality's notice (239708-2026, Dimos Dramas) quoted
+  total-value = 1,073,062,200,000 EUR for routine security/IT equipment,
+  and a Polish notice (157377-2026) quoted 1,086,150,000,000 PLN
+  (~EUR 253.99bn after correct conversion) for a routine fuel-supply
+  contract — both many orders of magnitude beyond any real public
+  contract, and both internally consistent otherwise (the currency math
+  checks out; the raw number TED itself reports is just wrong).
+  `scripts/value_sanity.py` excludes any single record's EUR value above
+  `MAX_PLAUSIBLE_VALUE_EUR` (EUR 50bn — chosen well above the largest
+  verified-real notice found so far, ~EUR 6.03bn, see below) from
+  aggregates: the contract still counts and still appears in listings
+  with its raw `total_value`/`total_value_cur`/`notice_url` intact (so it
+  can be checked against the source), it's just not trusted as a EUR
+  amount (`value_excluded_outlier: true` on the record). This is a coarse
+  safeguard against the clearest cases, not a claim that every very-large
+  remaining value is verified real — a handful of contracts in the
+  EUR 10-21bn range (e.g. a Dutch municipality's EUR 21.2bn IT contract)
+  are still large enough to warrant skepticism but not clearly impossible
+  the way the excluded ones were, so they're left as-is pending a way to
+  verify them against buyer scale rather than value alone.
 - **A notice's `total-value` can be a framework ceiling, not an actual
   award/spend amount, with no way to tell the two apart via this API.**
   Confirmed on a real notice (Banedanmark/Rambøll, publication 589103-2024,
