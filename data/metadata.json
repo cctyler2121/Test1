@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-10T12:19:58.404371+00:00",
+  "generated_at": "2026-11-11T12:06:53.626312+00:00",
   "buyer_countries": [
     "AUT",
     "BEL",
@@ -45,7 +45,7 @@
     "72"
   ],
   "date_from": "20240101",
-  "notice_count": 678645,
-  "record_count": 401064,
-  "company_count": 148052
+  "notice_count": 679669,
+  "record_count": 401689,
+  "company_count": 148241
 }
